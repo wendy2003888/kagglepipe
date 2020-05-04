@@ -5,6 +5,9 @@ import os
 import absl
 import tensorflow as tf
 import tensorflow_transform as tft
+from kerastuner.tuners import RandomSearch
+from kerastuner import HyperModel
+
 
 NUMERIC_FEATURE_KEYS = [
     'Age',
@@ -91,30 +94,38 @@ def input_fn(filenames, tf_transform_output, batch_size=200):
   return dataset
 
 
-def keras_model_builder(feature_columns):
-  """Build a keras model."""
-  feature_input_layers = {
-      colname: tf.keras.layers.Input(name=colname, shape=(), dtype=tf.float32)
-      for colname in NUMERIC_FEATURE_KEYS
-  }
-  feature_input_layers.update({
-      colname: tf.keras.layers.Input(name=colname, shape=(), dtype=tf.string)
-      for colname in CATEGORICAL_FEATURE_KEYS
-  })
-  inputs = tf.keras.layers.DenseFeatures(feature_columns)(feature_input_layers)
-  # inputs = feature_layer(feature_input_layers)
-  fc1 = tf.keras.layers.Dense(64, activation='relu')(inputs)
-  fc2 = tf.keras.layers.Dense(32, activation='relu')(fc1)
-  outputs = tf.keras.layers.Dense(1, activation='sigmoid')(fc2)
-  flatten_outputs = tf.keras.layers.Reshape((-1,))(outputs)
-  model = tf.keras.Model(inputs=feature_input_layers, outputs=flatten_outputs)
 
-  model.compile(
-      optimizer='adam',
-      loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
-      metrics=['BinaryAccuracy'])
-  absl.logging.info(model.summary())
-  return model
+class KerasModel(HyperModel):
+
+    def __init__(self, feature_columns):
+        self.feature_columns = feature_columns
+
+    def build(self, hp):
+        feature_input_layers = {
+            colname: tf.keras.layers.Input(name=colname, shape=(), dtype=tf.float32)
+            for colname in NUMERIC_FEATURE_KEYS
+        }
+        feature_input_layers.update({
+            colname: tf.keras.layers.Input(name=colname, shape=(), dtype=tf.string)
+            for colname in CATEGORICAL_FEATURE_KEYS
+        })
+        inputs = tf.keras.layers.DenseFeatures(self.feature_columns)(feature_input_layers)
+        fc1 = tf.keras.layers.Dense(units=hp.Int('units',
+                                            min_value=32,
+                                            max_value=128,
+                                            step=32), activation='relu')(inputs)
+        fc2 = tf.keras.layers.Dense(32, activation='relu')(fc1)
+        outputs = tf.keras.layers.Dense(1, activation='sigmoid')(fc2)
+        flatten_outputs = tf.keras.layers.Reshape((-1,))(outputs)
+        model = tf.keras.Model(inputs=feature_input_layers, outputs=flatten_outputs)
+
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(
+                  hp.Choice('learning_rate', [1e-2, 1e-3, 1e-4])),
+            loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+            metrics=['BinaryAccuracy'])
+        absl.logging.info(model.summary())
+        return model
 
 
 def get_serving_receiver_fn(model, tf_transform_output):
@@ -184,22 +195,32 @@ def run_fn(fn_args):
 
   feature_columns = numeric_columns + categorical_columns
 
-  model = keras_model_builder(feature_columns)
+  
+  model = KerasModel(feature_columns)
+  
+  tuner = RandomSearch(
+      model,
+      objective='val_BinaryAccuracy',
+      max_trials=10,
+      # Separate tunner files with model files, so that pusher can work properly when version <= 0.21.4.
+      directory=os.path.dirname(fn_args.serving_model_dir),
+      project_name='keras_tuner')
 
   log_dir = os.path.join(os.path.dirname(fn_args.serving_model_dir), 'logs')
   tensorboard_callback = tf.keras.callbacks.TensorBoard(
       log_dir=log_dir, update_freq='batch')
-  model.fit(
-      train_data,
-      epochs=5,
-      steps_per_epoch=fn_args.train_steps,
-      validation_data=eval_data,
-      validation_steps=fn_args.eval_steps,
-      callbacks=[tensorboard_callback])
-
+  # When passing an infinitely repeating dataset, you must specify the `steps_per_epoch` argument.
+  tuner.search(train_data,
+               epochs=10,
+               steps_per_epoch=20,
+               validation_steps=fn_args.eval_steps,
+               validation_data=eval_data,
+               callbacks=[tensorboard_callback])
+  tuner.search_space_summary()
+  best_model = tuner.get_best_models(1)[0]
   signatures = {
       'serving_default':
-          get_serving_receiver_fn(model,
+          get_serving_receiver_fn(best_model,
                                   tf_transform_output).get_concrete_function(
                                       tf.TensorSpec(
                                           shape=[None],
@@ -208,4 +229,4 @@ def run_fn(fn_args):
   }
   # More about signatures:
   # https://www.tensorflow.org/api_docs/python/tf/saved_model/save?hl=en
-  model.save(fn_args.serving_model_dir, save_format='tf', signatures=signatures)
+  best_model.save(fn_args.serving_model_dir, save_format='tf', signatures=signatures)
