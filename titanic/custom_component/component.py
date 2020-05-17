@@ -19,7 +19,8 @@ class TestPredComponentSpec(types.ComponentSpec):
   }
   INPUTS = {
       # This will be a dictionary with input artifacts, including URIs
-      'transformed_examples': ChannelParameter(type=standard_artifacts.Examples),
+      'examples': ChannelParameter(type=standard_artifacts.Examples),
+      
       'model': ChannelParameter(type=standard_artifacts.Model),
   }
   OUTPUTS = {
@@ -38,7 +39,7 @@ class TestPredComponent(base_component.BaseComponent):
   EXECUTOR_SPEC = executor_spec.ExecutorClassSpec(executor.Executor)
 
   def __init__(self,
-               transformed_examples: types.Channel = None,
+               examples: types.Channel = None,
                model: types.Channel = None,
                output_data: types.Channel = None):
     """Construct a HelloComponent.
@@ -54,5 +55,5 @@ class TestPredComponent(base_component.BaseComponent):
         output_data = channel_utils.as_channel([examples_artifact])
 
     spec = TestPredComponentSpec(
-        transformed_examples=transformed_examples, model=model, output_data=output_data)
+        examples=examples, model=model, output_data=output_data)
     super(TestPredComponent, self).__init__(spec=spec)

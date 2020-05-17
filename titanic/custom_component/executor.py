@@ -24,8 +24,10 @@ class Executor(base_executor.BaseExecutor):
          exec_properties: Dict[Text, Any]) -> None:
     self._log_startup(input_dict, output_dict, exec_properties)
 
-    transformed_examples_uri = artifact_utils.get_split_uri(input_dict['transformed_examples'], 'train')
-    
+    example_uris = {}
+    for example in input_dict['examples']:
+      for split in artifact_utils.decode_split_names(example.split_names):
+        example_uris[split] = os.path.join(example.uri, split)
                
     model = artifact_utils.get_single_instance(input_dict['model'])
     model_path = path_utils.serving_model_path(model.uri)
@@ -37,9 +39,15 @@ class Executor(base_executor.BaseExecutor):
     output_uri = os.path.join(
         artifact_utils.get_single_uri(output_dict['output_data']), 'pred.csv')
     with self._make_beam_pipeline() as pipeline:
-      test_data = pipeline | 'ReadFromTFRecord' >> beam.io.ReadFromTFRecord(file_pattern=io_utils.all_files_pattern(transformed_examples_uri))
-      (test_data | 'Values' >> beam.Values() 
+      test_data = []
+      for split, example_uri in example_uris.items():
+        test_data.append(pipeline | 'ReadFromTFRecord_{}'.format(split) >> beam.io.ReadFromTFRecord(file_pattern=io_utils.all_files_pattern(example_uri)))
+      
+      (test_data | 'Flattern' >> beam.Flatten()
       | 'ParseToExample' >> beam.Map(tf.train.Example.FromString)
-      | 'Predict' >> beam.Map(lambda x: live_model.predict(x))
+      # can't pickle tensorflow.python._tf_stack.StackSummary objects
+      | 'Predict' >> beam.Map(lambda x: {'id': x.features.feature['PassengerId'].int64_list.value[0], 'prediction': live_model.signatures["serving_default"](examples=tf.constant([x.SerializeToString()]))})
+      | 'PredictionTensorToNumpy' >> beam.Map(lambda x: x['output_0'].numpy())
+      | 'FormatToStr' >> beam.Map(lambda x: '%s,%s' % (x[0], '1' if x[1][0][0] > 0.5  else '0'))
       | 'WriteToFile' >> beam.io.WriteToText(output_uri))
     absl.logging.info('TestPredComponent result written to %s.', output_uri)

@@ -101,6 +101,9 @@ def keras_model_builder(feature_columns):
       colname: tf.keras.layers.Input(name=colname, shape=(), dtype=tf.string)
       for colname in CATEGORICAL_FEATURE_KEYS
   })
+  # Makes Model Reader Happy.
+  # DenseFeatures V2 doesn't have partitioner right now. down grade to v1 api.
+  # https://github.com/tensorflow/tensorflow/blob/v2.2.0/tensorflow/python/feature_column/dense_features_v2.py#L39
   partitioner = tf.compat.v1.fixed_size_partitioner(num_shards=1)
   inputs = tf.compat.v1.keras.layers.DenseFeatures(
       feature_columns=feature_columns, partitioner=partitioner)(feature_input_layers)
