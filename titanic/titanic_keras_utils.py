@@ -93,8 +93,6 @@ def input_fn(filenames, tf_transform_output, batch_size=200):
       shuffle=True)
   return dataset
 
-
-
 class KerasModel(HyperModel):
 
     def __init__(self, feature_columns):
@@ -109,7 +107,10 @@ class KerasModel(HyperModel):
             colname: tf.keras.layers.Input(name=colname, shape=(), dtype=tf.string)
             for colname in CATEGORICAL_FEATURE_KEYS
         })
-        inputs = tf.keras.layers.DenseFeatures(self.feature_columns)(feature_input_layers)
+        # Makes Model Reader Happy.
+        # DenseFeatures V2 doesn't have partitioner right now. down grade to v1 api.
+        # https://github.com/tensorflow/tensorflow/blob/v2.2.0/tensorflow/python/feature_column/dense_features_v2.py#L39
+        inputs = tf.keras.layers.DenseFeatures(self.feature_columns, partitioner=partitioner)(feature_input_layers)
         fc1 = tf.keras.layers.Dense(units=hp.Int('units',
                                             min_value=32,
                                             max_value=128,
@@ -126,6 +127,7 @@ class KerasModel(HyperModel):
             metrics=['BinaryAccuracy'])
         absl.logging.info(model.summary())
         return model
+
 
 
 def get_serving_receiver_fn(model, tf_transform_output):

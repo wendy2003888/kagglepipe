@@ -31,6 +31,7 @@ from tfx.orchestration.beam.beam_dag_runner import BeamDagRunner
 from tfx.proto import pusher_pb2
 from tfx.proto import trainer_pb2
 from tfx.utils.dsl_utils import tfrecord_input
+from custom_component import component as custom_component
 
 FLAGS = flags.FLAGS
 
@@ -48,32 +49,42 @@ def create_tfx_pipeline(pipeline_name: Text, pipeline_root: Text,
   """Implements the chicago taxi pipeline with TFX."""
 
   # Brings data into the pipeline or otherwise joins/converts training data.
-  examples = tfrecord_input(data_root)
-  example_gen = ImportExampleGen(input=examples)
+  train_data_path = os.path.join(data_root, 'train')
+  test_data_path = os.path.join(data_root, 'test')
+  train_examples = tfrecord_input(train_data_path)
+  train_example_gen = ImportExampleGen(input=train_examples, instance_name='train_example_gen')
+  test_examples = tfrecord_input(test_data_path)
+  test_example_gen = ImportExampleGen(input=test_examples, instance_name='test_example_gen')
 
   # Computes statistics over data for visualization and example validation.
-  statistics_gen = StatisticsGen(examples=example_gen.outputs['examples'])
+  train_statistics_gen = StatisticsGen(examples=train_example_gen.outputs['examples'])
 
   # Generates schema based on statistics files.
-  infer_schema = SchemaGen(
-      statistics=statistics_gen.outputs['statistics'],
+  train_infer_schema = SchemaGen(
+      statistics=train_statistics_gen.outputs['statistics'],
       infer_feature_shape=False)
 
-  transform = Transform(
-      examples=example_gen.outputs['examples'],
-      schema=infer_schema.outputs['schema'],
-      module_file=module_file)
+  train_transform = Transform(
+      examples=train_example_gen.outputs['examples'],
+      schema=train_infer_schema.outputs['schema'],
+      module_file=module_file,
+      instance_name='train_transformer')
 
   # Uses user-provided Python function that implements a model using TF-Learn.
   trainer = Trainer(
       module_file=module_file,
       # need to use custom executor spec
       custom_executor_spec=executor_spec.ExecutorClassSpec(GenericExecutor),
-      transformed_examples=transform.outputs['transformed_examples'],
-      transform_graph=transform.outputs['transform_graph'],
-      schema=infer_schema.outputs['schema'],
+      transformed_examples=train_transform.outputs['transformed_examples'],
+      transform_graph=train_transform.outputs['transform_graph'],
+      schema=train_infer_schema.outputs['schema'],
       train_args=trainer_pb2.TrainArgs(num_steps=20),
       eval_args=trainer_pb2.EvalArgs(num_steps=10))
+  
+  test_pred = custom_component.TestPredComponent(
+      examples=test_example_gen.outputs['examples'],
+      model=trainer.outputs['model']
+  )
 
   eval_config = tfma.EvalConfig(
       model_specs=[tfma.ModelSpec(label_key='Survived')],
@@ -88,7 +99,7 @@ def create_tfx_pipeline(pipeline_name: Text, pipeline_root: Text,
       ])
 
   evaluator = Evaluator(
-      examples=example_gen.outputs['examples'],
+      examples=train_example_gen.outputs['examples'],
       model=trainer.outputs['model'],
       # Change threshold will be ignored if there is no baseline (first run).
       eval_config=eval_config)
@@ -105,8 +116,9 @@ def create_tfx_pipeline(pipeline_name: Text, pipeline_root: Text,
       pipeline_name=pipeline_name,
       pipeline_root=pipeline_root,
       components=[
-          example_gen, statistics_gen, infer_schema, transform, trainer,
-          evaluator, pusher
+          train_example_gen, train_statistics_gen, train_infer_schema, train_transform, trainer,
+          test_example_gen, test_pred,
+          # evaluator, pusher
       ],
       enable_cache=True,
       metadata_connection_config=metadata.sqlite_metadata_connection_config(
