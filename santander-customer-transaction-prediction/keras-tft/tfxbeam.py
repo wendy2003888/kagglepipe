@@ -44,10 +44,8 @@ def generate_pipeline(pipeline_name, pipeline_root, train_data, test_data, train
   example_gen = CsvExampleGen(input=examples, instance_name="train")
 
   test_examples = external_input(test_data_param)
-  test_example_gen = CsvExampleGen(input=test_examples, instance_name="test")
+  test_example_gen = CsvExampleGen(input=test_examples, output_config={'split_config': {'splits': [{'name':'test', 'hash_buckets':1}]}}, instance_name="test")
 
-  hello = component.HelloComponent(
-      input_data=example_gen.outputs['examples'], instance_name='HelloWorld')
   statistics_gen = StatisticsGen(examples=example_gen.outputs['examples'])
   schema_gen = SchemaGen(statistics=statistics_gen.outputs['statistics'],
       infer_feature_shape=True) # infer_feature_shape controls sparse or dense
@@ -65,7 +63,8 @@ def generate_pipeline(pipeline_name, pipeline_root, train_data, test_data, train
       schema=schema_gen.outputs['schema'],
       module_file=module_file,
       train_args=trainer_pb2.TrainArgs(num_steps=train_steps),
-      eval_args=trainer_pb2.EvalArgs(num_steps=eval_steps))
+      eval_args=trainer_pb2.EvalArgs(num_steps=eval_steps),
+      instance_name="train")
 
   # Get the latest blessed model for model validation.
   model_resolver = ResolverNode(
@@ -107,7 +106,7 @@ def generate_pipeline(pipeline_name, pipeline_root, train_data, test_data, train
       model_blessing=evaluator.outputs['blessing'],
       push_destination={'filesystem': {
           'base_directory': pusher_target_param}})
-  
+
   bulk_inferrer = BulkInferrer(
       examples=test_example_gen.outputs['examples'],
       model=trainer.outputs['model'],
@@ -116,6 +115,9 @@ def generate_pipeline(pipeline_name, pipeline_root, train_data, test_data, train
       model_spec=bulk_inferrer_pb2.ModelSpec(),
       instance_name="bulkInferrer"
       )
+
+  hello = component.HelloComponent(
+      input_data=bulk_inferrer.outputs['inference_result'], instance_name='csvGen')
 
   return pipeline.Pipeline(
       pipeline_name=pipeline_name,

@@ -39,8 +39,16 @@ def build_keras_model(hp) -> tf.keras.Model:
       for key in range(0, 200)
   ]
   d = keras.layers.concatenate(inputs)
-  d = keras.layers.Dense(50, activation='relu')(d)
-  d = keras.layers.Dense(25, activation='relu')(d)
+  if hp != None:
+    d = keras.layers.Dense(hp.Int('n_1', min_value=32, max_value=512, step=64),
+                           activation='relu')(d)
+    d = keras.layers.Dense(hp.Int('n_2', min_value=8, max_value=64, step=16),
+                           activation='relu')(d)
+  else:
+    d = keras.layers.Dense(336, activation='relu')(d)
+    d = keras.layers.Dense(168, activation='relu')(d)
+    d = keras.layers.Dense(84, activation='relu')(d)
+    d = keras.layers.Dense(42, activation='relu')(d)
   outputs = keras.layers.Dense(1, activation='sigmoid')(d)
 
   model = keras.Model(inputs=inputs, outputs=outputs)
@@ -66,7 +74,8 @@ def get_serve_tf_examples_fn(model, tf_transform_output):
     # or don't set tft_layer but
     # transformed_features = tf_transform_output.transform_raw_features(parsed_features)
     transformed_features = model.tft_layer(parsed_features)
-    transformed_features.pop('target_tft')
+    # can be removed after TFT 0.22.2
+    transformed_features.pop('target_tft', None)
 
     return model(transformed_features)
 
@@ -93,8 +102,8 @@ def run_fn(fn_args):
 
   tf_transform_output = tft.TFTransformOutput(fn_args.transform_output)
 
-  train_dataset = input_fn(fn_args.train_files, tf_transform_output, batch_size=20)
-  eval_dataset = input_fn(fn_args.eval_files, tf_transform_output, batch_size=10)
+  train_dataset = input_fn(fn_args.train_files, tf_transform_output, batch_size=100)
+  eval_dataset = input_fn(fn_args.eval_files, tf_transform_output, batch_size=100)
 
   log_dir = os.path.join(os.path.dirname(fn_args.serving_model_dir), 'logs')
   tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, update_freq='batch')
@@ -106,8 +115,8 @@ def run_fn(fn_args):
       model = build_keras_model(None)
     model.fit(
         train_dataset,
-        epochs=2,
-        steps_per_epoch=1000,
+        epochs=1,
+        steps_per_epoch=fn_args.train_steps,
         validation_data=eval_dataset,
         validation_steps=fn_args.eval_steps,
         callbacks=[tensorboard_callback])
@@ -119,14 +128,14 @@ def run_fn(fn_args):
         max_trials=5,
         executions_per_trial=3,
         directory=fn_args.serving_model_dir,
-        project_name='tuner')  
+        project_name='tuner')
     tuner.search(
         train_dataset,
-        epochs=2,
-        steps_per_epoch=1000,
+        epochs=1,
+        steps_per_epoch=fn_args.train_steps, # or few steps to get best HP and then well fit
         validation_steps=fn_args.eval_steps,
         validation_data=eval_dataset,
-        callbacks=[tensorboard_callback])
+        callbacks=[tensorboard_callback, tf.keras.callbacks.EarlyStopping()])
     tuner.search_space_summary()
     tuner.results_summary()
     best_hparams = tuner.oracle.get_best_trials(1)[0].hyperparameters.get_config()
