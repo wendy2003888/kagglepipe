@@ -110,6 +110,7 @@ class KerasModel(HyperModel):
         # Makes Model Reader Happy.
         # DenseFeatures V2 doesn't have partitioner right now. down grade to v1 api.
         # https://github.com/tensorflow/tensorflow/blob/v2.2.0/tensorflow/python/feature_column/dense_features_v2.py#L39
+        partitioner = tf.compat.v1.fixed_size_partitioner(num_shards=1)
         inputs = tf.keras.layers.DenseFeatures(self.feature_columns, partitioner=partitioner)(feature_input_layers)
         fc1 = tf.keras.layers.Dense(units=hp.Int('units',
                                             min_value=32,
@@ -202,7 +203,7 @@ def run_fn(fn_args):
   
   tuner = RandomSearch(
       model,
-      objective='val_BinaryAccuracy',
+      objective='val_binary_accuracy',
       max_trials=10,
       # Separate tunner files with model files, so that pusher can work properly when version <= 0.21.4.
       directory=os.path.dirname(fn_args.serving_model_dir),
