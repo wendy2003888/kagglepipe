@@ -77,16 +77,15 @@ def generate_pipeline(pipeline_name, pipeline_root, train_data, test_data, train
   # perform quality validation of a candidate model (compared to a baseline).
   eval_config = tfma.EvalConfig(
       model_specs=[tfma.ModelSpec(label_key='target')],
-      slicing_specs=[
-          tfma.SlicingSpec(),
-          tfma.SlicingSpec(feature_keys=['var_0', 'var_1'])],
+      # tfma.SlicingSpec(feature_keys=['var_0', 'var_1']) when add more, Evaluator can't ouptput BLESSED status. It should be a bug in TFMA.
+      slicing_specs=[tfma.SlicingSpec()],
       metrics_specs=[
           tfma.MetricsSpec(
               thresholds={
                   'binary_accuracy':
                       tfma.config.MetricThreshold(
                           value_threshold=tfma.GenericValueThreshold(
-                              lower_bound={'value': 0.4}), # always bless
+                              lower_bound={'value': 0.4}),
                           change_threshold=tfma.GenericChangeThreshold(
                               direction=tfma.MetricDirection.HIGHER_IS_BETTER,
                               absolute={'value': -1e-10}))
@@ -97,7 +96,8 @@ def generate_pipeline(pipeline_name, pipeline_root, train_data, test_data, train
       model=trainer.outputs['model'],
       # baseline_model=model_resolver.outputs['model'],
       # Change threshold will be ignored if there is no baseline (first run).
-      eval_config=eval_config)
+      eval_config=eval_config,
+      instance_name="eval5")
 
   # Checks whether the model passed the validation steps and pushes the model
   # to a file destination if check passed.

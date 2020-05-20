@@ -45,10 +45,8 @@ def build_keras_model(hp) -> tf.keras.Model:
     d = keras.layers.Dense(hp.Int('n_2', min_value=8, max_value=64, step=16),
                            activation='relu')(d)
   else:
-    d = keras.layers.Dense(336, activation='relu')(d)
-    d = keras.layers.Dense(168, activation='relu')(d)
-    d = keras.layers.Dense(84, activation='relu')(d)
-    d = keras.layers.Dense(42, activation='relu')(d)
+    d = keras.layers.Dense(50, activation='relu')(d)
+    d = keras.layers.Dense(25, activation='relu')(d)    
   outputs = keras.layers.Dense(1, activation='sigmoid')(d)
 
   model = keras.Model(inputs=inputs, outputs=outputs)
@@ -68,7 +66,7 @@ def get_serve_tf_examples_fn(model, tf_transform_output):
   @tf.function
   def serve_tf_examples_fn(serialized_tf_examples):
     feature_spec = tf_transform_output.raw_feature_spec()
-    feature_spec.pop('target')
+    feature_spec.pop('target', None)
     parsed_features = tf.io.parse_example(serialized_tf_examples, feature_spec)
 
     # or don't set tft_layer but
