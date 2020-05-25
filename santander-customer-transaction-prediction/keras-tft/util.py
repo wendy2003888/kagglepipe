@@ -38,7 +38,13 @@ def build_keras_model(hp) -> tf.keras.Model:
       keras.layers.Input(shape=(1,), name=tft_column_name(key))
       for key in range(0, 200)
   ]
-  d = keras.layers.concatenate(inputs)
+  # feature crossing in TFT
+  inputs.append(keras.layers.Input(shape=(1,), name='fc1'))
+  # feature crossing in model
+  fc2 = inputs[2] * inputs[3]
+
+  all = inputs + [fc2]
+  d = keras.layers.concatenate(all)
   if hp != None:
     d = keras.layers.Dense(hp.Int('n_1', min_value=32, max_value=512, step=64),
                            activation='relu')(d)
@@ -93,6 +99,7 @@ def preprocessing_fn(inputs):
     feature_key = raw_column_name(key)
     outputs[tft_column_name(key)] = inputs[feature_key] # tft.scale_to_z_score(inputs[feature_key])
   outputs['target_tft'] = inputs['target']
+  outputs['fc1'] = inputs['var_0'] * inputs['var_1']
   return outputs
 
 # TFX Trainer will call this function.

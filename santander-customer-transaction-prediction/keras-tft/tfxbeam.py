@@ -64,7 +64,8 @@ def generate_pipeline(pipeline_name, pipeline_root, train_data, test_data, train
       module_file=module_file,
       train_args=trainer_pb2.TrainArgs(num_steps=train_steps),
       eval_args=trainer_pb2.EvalArgs(num_steps=eval_steps),
-      instance_name="train")
+      instance_name="train",
+      enable_cache=False)
 
   # Get the latest blessed model for model validation.
   model_resolver = ResolverNode(
@@ -144,6 +145,9 @@ def main(_):
 
   if flags.FLAGS.runner == 'local':
     BeamDagRunner().run(pipeline)
+  #elif flags.FLAGS.runner == 'flink':
+    # need to slightly change TFX codes to support other Beam-runners
+    # BeamDagRunner(pipelineOptions).run(pipeline)
   elif flags.FLAGS.runner == 'kubeflow':
     metadata_config = kubeflow_dag_runner.get_default_kubeflow_metadata_config()
     tfx_image = os.environ.get('KUBEFLOW_TFX_IMAGE', None)
