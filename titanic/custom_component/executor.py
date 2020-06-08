@@ -56,10 +56,14 @@ class Executor(base_executor.BaseExecutor):
       | 'ParseToExample' >> beam.Map(tf.train.Example.FromString)
       | 'Prediction' >> beam.ParDo(RunModel(model_path, 'serving_default', 'PassengerId'))
       | 'ParseToKVPair' >> beam.Map(lambda x: ParseResultToKV(x))
-      | 'ToStr' >> beam.Map(lambda x: '{},{}'.format(x[0], '0' if x[1] < 0.5 else '1'))
+      | 'AddSameKey' >> beam.Map(lambda x: (1, x))
+      | 'Window' >> beam.WindowInto(beam.window.GlobalWindows())
+      | 'GroupByKey' >> beam.GroupByKey()
+      | 'Sort' >> beam.Map(lambda group_data :  sorted(group_data[1],key=lambda x: x[0]))
+      | 'Flatten' >> beam.FlatMap(lambda x : x)
+      | 'ToStr' >> beam.Map(lambda x : '{},{}'.format(x[0], '0' if x[1] < 0.5 else '1'))
       | 'WriteToFile' >> beam.io.WriteToText(output_uri, num_shards=1, shard_name_template='', header='PassengerId,Survived'))
     absl.logging.info('TestPredComponent result written to %s.', output_uri)
-
 
 def ParseResultToKV(outputs):
   # res = {}

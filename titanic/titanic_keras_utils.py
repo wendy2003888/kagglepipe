@@ -200,7 +200,7 @@ def run_fn(fn_args):
   
   tuner = RandomSearch(
       model,
-      objective='val_BinaryAccuracy',
+      objective='val_binary_accuracy',
       max_trials=10,
       # Separate tunner files with model files, so that pusher can work properly when version <= 0.21.4.
       directory=os.path.dirname(fn_args.serving_model_dir),
