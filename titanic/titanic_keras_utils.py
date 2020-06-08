@@ -11,9 +11,10 @@ from kerastuner import HyperModel
 
 NUMERIC_FEATURE_KEYS = [
     'Age',
-    'SibSp',
-    'Parch',
+    # 'SibSp',
+    # 'Parch',
     'Fare',
+    'NumFamilyMember',
 ]
 
 CATEGORICAL_FEATURE_KEYS = [
@@ -59,7 +60,7 @@ def preprocessing_fn(inputs):
   """Preprocess input columns into transformed columns."""
   outputs = {}
   for key in NUMERIC_FEATURE_KEYS:
-    outputs[key] = sparse_2_dense(inputs[key])
+    outputs[key] = tft.scale_to_z_score(sparse_2_dense(inputs[key]))
 
   for key in CATEGORICAL_FEATURE_KEYS:
     outputs[key] = sparse_2_dense(inputs[key])
@@ -112,10 +113,14 @@ class KerasModel(HyperModel):
         inputs = tf.keras.layers.DenseFeatures(self.feature_columns)(feature_input_layers)
         fc1 = tf.keras.layers.Dense(units=hp.Int('units',
                                             min_value=32,
-                                            max_value=128,
+                                            max_value=256,
                                             step=32), activation='relu')(inputs)
-        fc2 = tf.keras.layers.Dense(32, activation='relu')(fc1)
-        outputs = tf.keras.layers.Dense(1, activation='sigmoid')(fc2)
+        fc2 = tf.keras.layers.Dense(hp.Int('units',
+                                            min_value=32,
+                                            max_value=128,
+                                            step=32), activation='relu')(fc1)
+        dropout = tf.keras.layers.Dropout(0.2)(fc2)
+        outputs = tf.keras.layers.Dense(1, activation='sigmoid')(dropout)
         flatten_outputs = tf.keras.layers.Reshape((-1,))(outputs)
         model = tf.keras.Model(inputs=feature_input_layers, outputs=flatten_outputs)
 
@@ -172,16 +177,6 @@ def run_fn(fn_args):
   eval_batch_size = 100
 
   tf_transform_output = tft.TFTransformOutput(fn_args.transform_output)
-  # numeric_columns =  [tf.feature_column.numeric_column('packed_numeric')]
-  numeric_columns = [
-      tf.feature_column.numeric_column(key) for key in NUMERIC_FEATURE_KEYS
-  ]
-  categorical_columns = [
-      tf.feature_column.indicator_column(  # pylint: disable=g-complex-comprehension
-          tf.feature_column.categorical_column_with_hash_bucket(
-              key, hash_bucket_size=CATEGORICAL_FEATURE_BUCKETS[key]))
-      for key in CATEGORICAL_FEATURE_KEYS
-  ]
 
   train_data = input_fn(  # pylint: disable=g-long-lambda
       fn_args.train_files,
@@ -193,8 +188,16 @@ def run_fn(fn_args):
       tf_transform_output,
       batch_size=eval_batch_size)
 
-  feature_columns = numeric_columns + categorical_columns
-
+  feature_columns = []
+  feature_columns.extend([
+      tf.feature_column.numeric_column(key) for key in NUMERIC_FEATURE_KEYS
+  ])
+  feature_columns.extend([
+      tf.feature_column.indicator_column(  # pylint: disable=g-complex-comprehension
+          tf.feature_column.categorical_column_with_hash_bucket(
+              key, hash_bucket_size=CATEGORICAL_FEATURE_BUCKETS[key]))
+      for key in CATEGORICAL_FEATURE_KEYS
+  ])
   
   model = KerasModel(feature_columns)
   
@@ -211,7 +214,7 @@ def run_fn(fn_args):
       log_dir=log_dir, update_freq='batch')
   # When passing an infinitely repeating dataset, you must specify the `steps_per_epoch` argument.
   tuner.search(train_data,
-               epochs=10,
+               epochs=25,
                steps_per_epoch=20,
                validation_steps=fn_args.eval_steps,
                validation_data=eval_data,

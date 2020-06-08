@@ -30,6 +30,7 @@ from tfx.orchestration import pipeline
 from tfx.orchestration.beam.beam_dag_runner import BeamDagRunner
 from tfx.proto import pusher_pb2
 from tfx.proto import trainer_pb2
+from tfx.utils.dsl_utils import external_input
 from tfx.utils.dsl_utils import tfrecord_input
 from custom_component import component as custom_component
 
@@ -55,6 +56,10 @@ def create_tfx_pipeline(pipeline_name: Text, pipeline_root: Text,
   train_example_gen = ImportExampleGen(input=train_examples, instance_name='train_example_gen')
   test_examples = tfrecord_input(test_data_path)
   test_example_gen = ImportExampleGen(input=test_examples, instance_name='test_example_gen')
+  # train_examples = external_input(train_data_path)
+  # train_example_gen = CsvExampleGen(input=train_examples, instance_name='train_example_gen')
+  # test_examples = external_input(test_data_path)
+  # test_example_gen = CsvExampleGen(input=test_examples, instance_name='test_example_gen')
 
   # Computes statistics over data for visualization and example validation.
   train_statistics_gen = StatisticsGen(examples=train_example_gen.outputs['examples'])
@@ -79,7 +84,7 @@ def create_tfx_pipeline(pipeline_name: Text, pipeline_root: Text,
       transform_graph=train_transform.outputs['transform_graph'],
       schema=train_infer_schema.outputs['schema'],
       train_args=trainer_pb2.TrainArgs(num_steps=20),
-      eval_args=trainer_pb2.EvalArgs(num_steps=10))
+      eval_args=trainer_pb2.EvalArgs(num_steps=20))
   
   test_pred = custom_component.TestPredComponent(
       examples=test_example_gen.outputs['examples'],
@@ -94,7 +99,7 @@ def create_tfx_pipeline(pipeline_name: Text, pipeline_root: Text,
                   'BinaryAccuracy':
                       tfma.config.MetricThreshold(
                           value_threshold=tfma.GenericValueThreshold(
-                              lower_bound={'value': 0.6}))
+                              lower_bound={'value': 0.75}))
               })
       ])
 

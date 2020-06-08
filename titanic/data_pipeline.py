@@ -11,6 +11,7 @@ from absl import flags
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+from sklearn.preprocessing import OneHotEncoder
 
 FLAGS = flags.FLAGS
 
@@ -38,16 +39,6 @@ def replace_nan_to_unknown_str(data, col):
 def normalize_numeric_data(data, mn, mx):
   # Center the data
   return (data - mn) / (mx - mn)
-
-
-def fill_age(data):
-  age_avg = data.mean()
-  age_std = data.std()
-  data = data.where(
-      pd.notna(data),
-      lambda x: np.random.randint(age_avg - age_std, age_avg + age_std))
-  data = data.astype(int)
-  return data
 
 
 def fill_fare(data):
@@ -101,10 +92,13 @@ def data_pipeline(data, numeric_cols=None, cate_cols=None, drop_cols=None):
   """Process raw data to features used in a model. return pandas.DataFrame."""
   if drop_cols:
     data = data.drop(drop_cols, axis=1)
-
-  data['Age'] = fill_age(data['Age'])
-  data = fill_fare(data)
+  age_mean = data['Age'].mean()
+  media_age = data['Age'].quantile(q=0.50)
+  data['Age'] = data['Age'].fillna(media_age)
+  media_fare = data['Fare'].quantile(q=0.50)
+  data['Fare'] = data['Fare'].fillna(media_fare)
   data = generate_not_alone(data)
+  data['NumFamilyMember'] = data['SibSp'] + data['Parch']
 
   for col in cate_cols:
     if data[col].isna().any():
@@ -112,11 +106,6 @@ def data_pipeline(data, numeric_cols=None, cate_cols=None, drop_cols=None):
     data[col] = data[col].astype('str')
 
   print('nan columns', check_nan(data))
-
-  for col in numeric_cols:
-    mn = data[col].min()
-    mx = data[col].max()
-    data[col].apply(normalize_numeric_data, args=(mn, mx))
   return data
 
 
